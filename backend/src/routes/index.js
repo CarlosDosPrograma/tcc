@@ -411,4 +411,116 @@ router.get('/servicos/:id/disponibilidade', async (req, res) => {
   return res.json(resposta);
 });
 
+router.patch('/servicos/:id', async (req, res) => {
+  validarId(req.params.id);
+
+  const dados = req.body;
+
+  if (
+    !dados ||
+    typeof dados !== 'object' ||
+    Array.isArray(dados)
+  ) {
+    falhar(400, 'Envie um objeto JSON com os campos para atualizar.');
+  }
+
+  const camposPermitidos = [
+    'titulo',
+    'descricao',
+    'categoria',
+    'preco',
+    'duracao',
+    'ativo',
+  ];
+
+  const camposRecebidos = Object.keys(dados);
+
+  if (camposRecebidos.length === 0) {
+    falhar(400, 'Informe pelo menos um campo para atualizar.');
+  }
+
+  const camposInvalidos = camposRecebidos.filter(
+    (campo) => !camposPermitidos.includes(campo)
+  );
+
+  if (camposInvalidos.length > 0) {
+    falhar(
+      400,
+      `Campos nao permitidos: ${camposInvalidos.join(', ')}.`
+    );
+  }
+
+  const atualizacoes = {};
+
+  if (Object.hasOwn(dados, 'titulo')) {
+    atualizacoes.titulo = texto(dados.titulo, 'Titulo', 100);
+  }
+
+  if (Object.hasOwn(dados, 'descricao')) {
+    atualizacoes.descricao = textoOpcional(
+      dados.descricao,
+      'Descricao',
+      1000
+    );
+  }
+
+  if (Object.hasOwn(dados, 'categoria')) {
+    atualizacoes.categoria = texto(
+      dados.categoria,
+      'Categoria',
+      60
+    );
+  }
+
+  if (Object.hasOwn(dados, 'preco')) {
+    if (
+      typeof dados.preco !== 'number' ||
+      !Number.isFinite(dados.preco) ||
+      dados.preco < 0
+    ) {
+      falhar(400, 'Preco deve ser um numero maior ou igual a zero.');
+    }
+
+    atualizacoes.preco = dados.preco;
+  }
+
+  if (Object.hasOwn(dados, 'duracao')) {
+    if (
+      !Number.isInteger(dados.duracao) ||
+      dados.duracao < 15 ||
+      dados.duracao > 480
+    ) {
+      falhar(400, 'Duracao deve ser um inteiro de 15 a 480 minutos.');
+    }
+
+    atualizacoes.duracao = dados.duracao;
+  }
+
+  if (Object.hasOwn(dados, 'ativo')) {
+    if (typeof dados.ativo !== 'boolean') {
+      falhar(400, 'Ativo deve ser true ou false.');
+    }
+
+    atualizacoes.ativo = dados.ativo;
+  }
+
+  const servico = await Servico.findByIdAndUpdate(
+    req.params.id,
+    { $set: atualizacoes },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  if (!servico) {
+    falhar(404, 'Servico nao encontrado.');
+  }
+
+  return res.json({
+    mensagem: 'Servico atualizado com sucesso.',
+    servico,
+  });
+});
+
 module.exports = router;
