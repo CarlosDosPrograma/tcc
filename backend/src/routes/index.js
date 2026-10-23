@@ -306,4 +306,109 @@ router.patch('/agendamentos/:id/status', async (req, res) => {
   res.json(atualizado);
 });
 
+router.get('/servicos/:id/disponibilidade', async (req, res) => {
+  validarId(req.params.id);
+
+  const { data } = req.query;
+
+  // Valida o formato da data.
+  if (
+    typeof data !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(data)
+  ) {
+    falhar(400, 'Informe a data no formato AAAA-MM-DD.');
+  }
+
+  const dataCalendario = new Date(`${data}T00:00:00Z`);
+
+  // Rejeita datas inexistentes, como 2026-02-30.
+  if (
+    Number.isNaN(dataCalendario.getTime()) ||
+    dataCalendario.toISOString().slice(0, 10) !== data
+  ) {
+    falhar(400, 'Data inexistente.');
+  }
+
+  const servico = await Servico.findOne({
+    _id: req.params.id,
+    ativo: true,
+  });
+
+  if (!servico) {
+    falhar(404, 'Servico nao encontrado.');
+  }
+
+  const resposta = {
+    servicoId: servico._id,
+    data,
+    deslocamentoUTC: '-03:00',
+    duracao: servico.duracao,
+    intervaloSugestoes: 30,
+    horarios: [],
+  };
+
+  const diaSemana = dataCalendario.getUTCDay();
+
+  // Não há atendimento aos sábados e domingos.
+  if (diaSemana === 0 || diaSemana === 6) {
+    return res.json(resposta);
+  }
+
+  // Mesmo deslocamento fixo usado na criação dos agendamentos.
+  const inicioExpediente = new Date(`${data}T08:00:00-03:00`);
+  const fimExpediente = new Date(`${data}T18:00:00-03:00`);
+  const agora = new Date();
+
+  if (fimExpediente <= agora) {
+    return res.json(resposta);
+  }
+
+  // Busca todos os atendimentos ativos do prestador
+  // que se sobrepõem ao expediente consultado.
+  const ocupados = await Agendamento.find({
+    prestador: servico.prestador,
+    status: { $in: ['pendente', 'confirmado'] },
+    inicio: { $lt: fimExpediente },
+    fim: { $gt: inicioExpediente },
+  })
+    .select('inicio fim -_id')
+    .lean();
+
+  const abertura = 8 * 60;
+  const fechamento = 18 * 60;
+  const intervalo = 30;
+
+  for (
+    let minutos = abertura;
+    minutos + servico.duracao <= fechamento;
+    minutos += intervalo
+  ) {
+    const hora = String(Math.floor(minutos / 60)).padStart(2, '0');
+    const minuto = String(minutos % 60).padStart(2, '0');
+    const horario = `${hora}:${minuto}`;
+
+    const inicio = new Date(`${data}T${horario}:00-03:00`);
+    const fim = new Date(
+      inicio.getTime() + servico.duracao * 60_000
+    );
+
+    if (inicio <= agora) {
+      continue;
+    }
+
+    const possuiConflito = ocupados.some((agendamento) => {
+      return (
+        inicio < agendamento.fim &&
+        fim > agendamento.inicio
+      );
+    });
+
+    if (!possuiConflito) {
+      resposta.horarios.push(horario);
+    }
+  }
+
+  return res.json(resposta);
+});
+
 module.exports = router;
