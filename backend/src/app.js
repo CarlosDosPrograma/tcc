@@ -19,8 +19,8 @@ app.use(express.json({ limit: '20kb' }));
 app.use('/api', routes);
 
 app.use((req, res) => {
-  res.status(404).json({
-    erro: 'Rota não encontrada.',
+  return res.status(404).json({
+    erro: 'Rota nao encontrada.',
   });
 });
 
